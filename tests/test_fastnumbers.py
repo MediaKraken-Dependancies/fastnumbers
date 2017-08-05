@@ -78,6 +78,17 @@ def a_number(s):
     return False
 
 
+def baseN(num, b, numerals="0123456789abcdefghijklmnopqrstuvwxyz"):
+    """
+    Convert any integer to a Base-N string representation.
+    Shamelessly stolen from http://stackoverflow.com/a/2267428/1399279
+    """
+    neg = num < 0
+    num = abs(num)
+    val = ((num == 0) and numerals[0]) or (baseN(num // b, b, numerals).lstrip(numerals[0]) + numerals[num % b])
+    return '-' + val if neg else val
+
+
 class DumbFloatClass(object):
     def __float__(self):
         raise ValueError("something here might go wrong")
@@ -90,6 +101,51 @@ class DumbIntClass(object):
 
 def test_version():
     assert hasattr(fastnumbers, '__version__')
+
+
+#################
+# Sanity Checks #
+#################
+
+
+def test_fast_real_with_no_arguments_fails():
+    with raises(TypeError):
+        fastnumbers.fast_real(5, invalid='dummy')
+
+
+def test_fast_float_with_no_arguments_fails():
+    with raises(TypeError):
+        fastnumbers.fast_float(5, invalid='dummy')
+
+
+def test_fast_int_with_no_arguments_fails():
+    with raises(TypeError):
+        fastnumbers.fast_int(5, invalid='dummy')
+
+
+def test_fast_forceint_with_no_arguments_fails():
+    with raises(TypeError):
+        fastnumbers.fast_forceint(5, invalid='dummy')
+
+
+def test_isreal_with_no_arguments_fails():
+    with raises(TypeError):
+        fastnumbers.isreal(5, invalid='dummy')
+
+
+def test_isfloat_with_no_arguments_fails():
+    with raises(TypeError):
+        fastnumbers.isfloat(5, invalid='dummy')
+
+
+def test_isint_with_no_arguments_fails():
+    with raises(TypeError):
+        fastnumbers.isint(5, invalid='dummy')
+
+
+def test_isintlike_with_no_arguments_fails():
+    with raises(TypeError):
+        fastnumbers.isintlike(5, invalid='dummy')
 
 
 #############
@@ -133,11 +189,15 @@ def test_fast_real_given_nan_returns_nan():
     assert math.isnan(fastnumbers.fast_real(float('nan')))
 
 
-def test_fast_real_with_nan_given_nan_string_returns_sub_value():
+def test_fast_real_given_nan_returns_sub_value():
     assert fastnumbers.fast_real(float('nan'), nan=0) == 0
 
 
-def test_fast_real_with_inf_given_inf_string_returns_sub_value():
+def test_fast_real_given_inf_returns_inf():
+    assert math.isinf(fastnumbers.fast_real(float('inf')))
+
+
+def test_fast_real_given_inf_returns_sub_value():
     assert fastnumbers.fast_real(float('inf'), inf=1000.0) == 1000.0
 
 
@@ -340,12 +400,26 @@ def test_fast_float_given_nan_returns_nan():
     assert math.isnan(fastnumbers.fast_float(float('nan')))
 
 
-def test_fast_float_with_nan_given_nan_string_returns_sub_value():
+def test_fast_float_given_nan_returns_sub_value():
     assert fastnumbers.fast_float(float('nan'), nan=0) == 0
 
 
-def test_fast_float_with_inf_given_inf_string_returns_sub_value():
+def test_fast_float_given_inf_returns_inf():
+    assert math.isinf(fastnumbers.fast_float(float('inf')))
+
+
+def test_fast_float_given_inf_returns_sub_value():
     assert fastnumbers.fast_float(float('inf'), inf=1000.0) == 1000.0
+
+
+def test_fast_float_with_range_of_exponents_correctly_parses():
+    for x in range(-300, 300):
+        val = '1.0E{0:d}'.format(x)
+        assert fastnumbers.fast_float(val) == float(val)
+    for x in range(-300, 300):
+        val = '1.0000000000E{0:d}'.format(x)
+        assert fastnumbers.fast_float(val) == float(val)
+
 
 @given(floats())
 @example(5.675088586167575e-116)
@@ -364,19 +438,11 @@ def test_fast_float_given_nan_string_returns_nan():
     assert math.isnan(fastnumbers.fast_float('NaN'))
 
 
-def test_fast_float_with_nan_given_nan_string_returns_sub_value():
-    assert fastnumbers.fast_float('nan', nan=0) == 0
-
-
 def test_fast_float_given_inf_string_returns_inf():
     assert fastnumbers.fast_float('inf') == float('inf')
     assert fastnumbers.fast_float('-INF') == float('-inf')
     assert fastnumbers.fast_float('infinity') == float('inf')
     assert fastnumbers.fast_float('-infINIty') == float('-inf')
-
-
-def test_fast_float_with_inf_given_inf_string_returns_sub_value():
-    assert fastnumbers.fast_float('inf', inf=10000.0) == 10000.0
 
 
 @given(floats(), integers(0, 100), integers(0, 100))
@@ -523,6 +589,15 @@ def test_fast_int_given_dumb_class_responds_to_internal_ValueError():
     assert fastnumbers.fast_int(x, default=5) == 5
 
 
+def test_fast_int_given_invalid_base_errors_with_ValueError():
+    with raises(ValueError):
+        fastnumbers.fast_int('10', base=-1)
+    with raises(ValueError):
+        fastnumbers.fast_int('10', base=1)
+    with raises(ValueError):
+        fastnumbers.fast_int('10', base=37)
+
+
 @given(floats())
 def test_fast_int_given_float_returns_int(x):
     assume(not math.isnan(x))
@@ -593,6 +668,15 @@ def test_fast_int_given_int_string_returns_int(x):
     y = repr(x)
     assert fastnumbers.fast_int(y) == x
     assert isinstance(fastnumbers.fast_int(y), (int, long))
+    for base in range(2, 36+1):
+        if len(y) < 30:  # Avoid recursion error because of overly simple baseN function.
+            assert fastnumbers.fast_int(baseN(x, base), base=base) == x
+    assert fastnumbers.fast_int(bin(x), base=2) == x
+    assert fastnumbers.fast_int(bin(x), base=0) == x
+    assert fastnumbers.fast_int(oct(x), base=8) == x
+    assert fastnumbers.fast_int(oct(x), base=0) == x
+    assert fastnumbers.fast_int(hex(x), base=16) == x
+    assert fastnumbers.fast_int(hex(x), base=0) == x
 
 
 @given(integers(), integers(0, 100), integers(0, 100))
@@ -642,6 +726,7 @@ def test_fast_int_given_unicode_of_more_than_one_char_returns_as_is(x):
 def test_fast_int_given_invalid_string_returns_string_as_is(x):
     assume(not a_number(x))
     assert fastnumbers.fast_int(x) is x
+    assert fastnumbers.fast_int(x, base=10) is x
 
 
 @given(text() | binary())
@@ -740,7 +825,7 @@ def test_fast_forceint_given_nan_string_raises_ValueError_with_raise_on_invalid_
 
 
 def test_fast_forceint_given_inf_string_raises_OverflowError_with_raise_on_invalid_as_True():
-    with raises(ValueError): 
+    with raises(OverflowError):
         fastnumbers.fast_forceint('inf', raise_on_invalid=True)
         fastnumbers.fast_forceint('-infinity', raise_on_invalid=True)
         fastnumbers.fast_forceint('inf', None, True)
@@ -1104,6 +1189,18 @@ def test_isint_returns_True_if_given_int_string_padded_or_not(x, y, z):
     assert fastnumbers.isint(repr(x)) is True
     assert fastnumbers.isint(repr(x), str_only=True)
     assert fastnumbers.isint(y)
+    for base in range(2, 36 + 1):
+        if len(repr(x)) < 30:  # Avoid recursion error because of overly simple baseN function.
+            assert fastnumbers.isint(baseN(x, base), base=base)
+    assert fastnumbers.isint(bin(x), base=2)
+    assert fastnumbers.isint(bin(x), base=0)
+    assert fastnumbers.isint(oct(x), base=8)
+    assert fastnumbers.isint(oct(x), base=0)
+    if python_version_tuple()[0] == '2':
+        assert fastnumbers.isint(oct(x).replace('0o', '0'), base=8)
+        assert fastnumbers.isint(oct(x).replace('0o', '0'), base=0)
+    assert fastnumbers.isint(hex(x), base=16)
+    assert fastnumbers.isint(hex(x), base=0)
 
 
 @given(floats(), integers(0, 100), integers(0, 100))
@@ -1113,6 +1210,9 @@ def test_isint_returns_False_if_given_float_string_padded_or_not(x, y, z):
     y = ''.join(repeat(' ', y)) + repr(x) + ''.join(repeat(' ', z))
     assert not fastnumbers.isint(repr(x))
     assert not fastnumbers.isint(y)
+    for base in range(2, 36 + 1):
+        if len(y) < 30:  # Avoid recursion error because of overly simple baseN function.
+            assert not fastnumbers.isint(y, base=base)
 
 
 @given(integers())

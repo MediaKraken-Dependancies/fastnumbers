@@ -1,7 +1,6 @@
 /* Scan a string and determine if it is a Python float */
+/* It is assumed that leading whitespace has already been removed. */
 #include "parsing.h"
-#include "fast_conversions.h"
-
 
 static bool
 between_chars_are_zero_or_decimal(const char* start, const char* end)
@@ -15,7 +14,7 @@ between_chars_are_zero_or_decimal(const char* start, const char* end)
 }
 
 bool
-string_contains_intlike_float (const char *str)
+string_contains_intlike_float (const char *str, const char *end)
 {
     register bool valid = false;
     register int pre_ndigits = 0;
@@ -26,18 +25,22 @@ string_contains_intlike_float (const char *str)
     register const char *decimal_start = NULL;
     register const char *float_end = NULL;
 
-    consume_white_space(str);
-    (void) consume_sign(str); 
+    (void) consume_sign(str);
  
     /* Before decimal. Keep track of number of digits read. */
 
     pre_ndigits = 0;
-    while (is_valid_digit(str)) { valid = true; pre_ndigits++; str++; }
+    while (is_valid_digit(str)) {
+        valid = true;
+        pre_ndigits++;
+        str++;
+        consume_single_underscore_before_digit_36_and_above(str);
+    }
     pre_decimal_end = str;
 
     /* If a long literal, stop here. */
     if (consume_python2_long_literal_lL(str))
-        return valid && trailing_characters_are_vaild_and_nul_terminated(&str);
+        return valid && str == end;
 
     /* Decimal part of float. Keep track of number of digits read */
     /* as well as beginning and end locations. */
@@ -47,7 +50,12 @@ string_contains_intlike_float (const char *str)
     if (is_decimal(str)) {  /* After decimal digits */
         str++;
         decimal_start = str;
-        while (is_valid_digit(str)) { valid = true; post_ndigits++; str++; }
+        while (is_valid_digit(str)) {
+            valid = true;
+            post_ndigits++;
+            str++;
+            consume_single_underscore_before_digit_36_and_above(str);
+        }
     }
     float_end = str;
 
@@ -59,9 +67,12 @@ string_contains_intlike_float (const char *str)
         valid = false;
         str++;
         exp_sign = consume_sign_and_is_negative(str) ? -1 : 1;
-        for (expon = 0; is_valid_digit(str); valid = true, str++) {
+        while (is_valid_digit(str)) {
             expon *= 10;
             expon += ascii2int(str);
+            valid = true;
+            str++;
+            consume_single_underscore_before_digit_36_and_above(str);
         }
     }
 
@@ -92,5 +103,5 @@ string_contains_intlike_float (const char *str)
             valid = true;
     }
 
-    return valid && trailing_characters_are_vaild_and_nul_terminated(&str);
+    return valid && str == end;
 }

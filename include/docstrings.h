@@ -74,6 +74,7 @@ PyDoc_STRVAR(fast_real__doc__,
 "See Also\n"
 "--------\n"
 "isreal\n"
+"real\n"
 "\n"
 "Examples\n"
 "--------\n"
@@ -199,6 +200,7 @@ PyDoc_STRVAR(fast_float__doc__,
 "See Also\n"
 "--------\n"
 "isfloat\n"
+"float\n"
 "\n"
 "Examples\n"
 "--------\n"
@@ -262,7 +264,7 @@ PyDoc_STRVAR(fast_float__doc__,
 
 
 PyDoc_STRVAR(fast_int__doc__, 
-"fast_int(x, default=None, raise_on_invalid=False, key=None)\n"
+"fast_int(x, default=None, raise_on_invalid=False, key=None, base=10)\n"
 "Quickly convert input to an `int`.\n"
 "\n"
 "Any input that is valid for the built-in `int` (or `long` on Python2)\n"
@@ -290,6 +292,10 @@ PyDoc_STRVAR(fast_int__doc__,
 "    If given and the *input* cannot be converted, the input will be\n"
 "    passed to the callable object and its return value will be returned.\n"
 "    The function must take one and only one required argument.\n"
+"base : int, optional\n"
+"    Follows the rules of Python's built-in :func:`int`; see it's\n"
+"    documentation for your Python version. If given, the input\n"
+"    **must** be of type `str`.\n"
 "\n"
 "Returns\n"
 "-------\n"
@@ -313,6 +319,7 @@ PyDoc_STRVAR(fast_int__doc__,
 "--------\n"
 "fast_forceint\n"
 "isint\n"
+"int\n"
 "\n"
 "Examples\n"
 "--------\n"
@@ -793,5 +800,45 @@ PyDoc_STRVAR(isintlike__doc__,
 "    ... \n"
 "\n");
 
+
+PyDoc_STRVAR(fastnumbers_int__doc__,
+"int(x=0, base=10)\n"
+"Drop-in but faster replacement for the built-in *int*.\n"
+"\n"
+"Behaves identically to the built-in *int* except for the following:\n"
+"\n"
+"    - Cannot convert from the ``__trunc__`` special method of an object.\n"
+"    - Is implemented as a function, not a class, which means it cannot be\n"
+"      sub-classed, and has no *from_bytes* classmethod.\n"
+"\n");
+
+
+PyDoc_STRVAR(fastnumbers_float__doc__,
+"float(x=0)\n"
+"Drop-in but faster replacement for the built-in *float*.\n"
+"\n"
+"Behaves identically to the built-in *float* except for the following:\n"
+"\n"
+"    - Is implemented as a function, not a class, which means it cannot be\n"
+"      sub-classed, and has no *fromhex* classmethod.\n"
+"    - A *ValueError* will be raised instead of a *UnicodeEncodeError*\n"
+"      if a partial surrogate is given as input.\n"
+"\n");
+
+
+PyDoc_STRVAR(fastnumbers_real__doc__,
+"real(x=0.0, coerce=True)\n"
+"Convert to *float* or *int*, whichever is most appropriate.\n"
+"\n"
+"If an *int* literal or string containing an *int* is provided,\n"
+"then an *int* will be returned. If a *float* literal or a string\n"
+"containing a non-*int* and non-*complex* number is provided,\n"
+"a *float* will be returned.\n"
+"\n"
+"If *coerce* is *True* (the default), then if a *float* is given\n"
+"that has no decimal places after conversion or only zeros after\n"
+"the decimal point, it will be returned as an *int* instead of a\n"
+"*float*.\n"
+"\n");
 
 #endif /* __DOCSTRINGS */

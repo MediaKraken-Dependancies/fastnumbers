@@ -5,45 +5,45 @@
  */
 
 #include <Python.h>
-#include "fast_conversions.h"
+#include <limits.h>
 #include "version.h"
 #include "docstrings.h"
-#include "py_to_char.h"
-#include "py_shortcuts.h"
+#include "options.h"
+#include "object_handling.h"
+#include "number_handling.h"
+#include "quick_detection.h"
 
 
-static PyObject*
-assess_PyNumber(PyObject *input, PyObject *retval,
-                PyObject *default_value, PyObject *raise_on_invalid,
-                PyObject *key, const PyNumberType type)
+/* Function to handle the conversion of base to integers.
+ * 0 is success, 1 is failure.
+ */
+int
+assess_integer_base_input(PyObject *pybase, int *base)
 {
-    /* None? It must be a TypeError. These always raise an error. */
-    if (retval == Py_None) {
-        PyErr_Format(PyExc_TypeError,
-                     "expected str, float, or int argument, got %.200s",
-                     input->ob_type->tp_name);
-        return NULL;
+    Py_ssize_t longbase = 0;
+
+    /* Default to INT_MIN.
+     */
+    if (pybase == NULL) {
+        *base = INT_MIN;
+        return 0;
     }
 
-    /* Handle error. */
-    else if (retval == NULL) {
-        if (PyObject_IsTrue(raise_on_invalid)) {
-            if (type == REAL || type == FLOAT)
-                return PyNumber_Float(input);
-            else
-                return PyNumber_ToInt(input);
-        }
-        else if (key != NULL)
-            return PyObject_CallFunctionObjArgs(key, input, NULL);
-        else if (default_value != NULL)
-            return Py_INCREF(default_value), default_value;
-        else
-            return Py_INCREF(input), input;
-    }
+    /* Convert to int and check for overflow.
+     */
+    longbase = PyNumber_AsSsize_t(pybase, NULL);
+    if (longbase == -1 && PyErr_Occurred())
+        return 1;
 
-    /* Return correct result. */
-    else
-        return retval;
+    /* Ensure valid integer in valid range.
+     */
+    if ((longbase != 0 && longbase < 2) || longbase > 36) {
+        PyErr_SetString(PyExc_ValueError,
+                        "int() base must be >= 2 and <= 36");
+        return 1;
+    }
+    *base = (int) longbase;
+    return 0;
 }
 
 
@@ -54,11 +54,7 @@ fastnumbers_fast_real(PyObject *self, PyObject *args, PyObject *kwargs)
     PyObject *input = NULL;
     PyObject *raise_on_invalid = Py_False;
     PyObject *default_value = NULL;
-    PyObject *key = NULL;
-    PyObject *inf_sub = NULL;
-    PyObject *nan_sub = NULL;
-    PyObject *coerce = Py_True;
-    PyObject *pyreturn = NULL;
+    struct Options opts = init_Options_convert;
     static char *keywords[] = { "x", "default", "raise_on_invalid",
                                 "key", "inf", "nan", "coerce", NULL };
     static const char *format = "O|OOOOOO:fast_real";
@@ -66,13 +62,12 @@ fastnumbers_fast_real(PyObject *self, PyObject *args, PyObject *kwargs)
     /* Read the function argument. */
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
                                      &input, &default_value, &raise_on_invalid,
-                                     &key, &inf_sub, &nan_sub, &coerce))
+                                     &opts.key, &opts.handle_inf, &opts.handle_nan,
+                                     &opts.coerce))
         return NULL;
+    Options_Set_Return_Value(opts, input, default_value, raise_on_invalid);
 
-    pyreturn = PyObject_to_PyNumber(input, REAL, inf_sub, nan_sub,
-                                    PyObject_IsTrue(coerce));
-    return assess_PyNumber(input, pyreturn,
-                           default_value, raise_on_invalid, key, REAL);
+    return PyObject_to_PyNumber(input, REAL, &opts);
 }
 
 
@@ -83,10 +78,7 @@ fastnumbers_fast_float(PyObject *self, PyObject *args, PyObject *kwargs)
     PyObject *input = NULL;
     PyObject *raise_on_invalid = Py_False;
     PyObject *default_value = NULL;
-    PyObject *key = NULL;
-    PyObject *inf_sub = NULL;
-    PyObject *nan_sub = NULL;
-    PyObject *pyreturn = NULL;
+    struct Options opts = init_Options_convert;
     static char *keywords[] = { "x", "default", "raise_on_invalid",
                                 "key", "inf", "nan", NULL };
     static const char *format = "O|OOOOO:fast_float";
@@ -94,12 +86,12 @@ fastnumbers_fast_float(PyObject *self, PyObject *args, PyObject *kwargs)
     /* Read the function argument. */
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
                                      &input, &default_value, &raise_on_invalid,
-                                     &key, &inf_sub, &nan_sub))
+                                     &opts.key, &opts.handle_inf, &opts.handle_nan))
         return NULL;
 
-    pyreturn = PyObject_to_PyNumber(input, FLOAT, inf_sub, nan_sub, false);
-    return assess_PyNumber(input, pyreturn,
-                           default_value, raise_on_invalid, key, FLOAT);
+    Options_Set_Return_Value(opts, input, default_value, raise_on_invalid);
+
+    return PyObject_to_PyNumber(input, FLOAT, &opts);
 }
 
 
@@ -110,21 +102,21 @@ fastnumbers_fast_int(PyObject *self, PyObject *args, PyObject *kwargs)
     PyObject *input = NULL;
     PyObject *raise_on_invalid = Py_False;
     PyObject *default_value = NULL;
-    PyObject *key = NULL;
-    PyObject *pyreturn = NULL;
+    PyObject *base = NULL;
+    struct Options opts = init_Options_convert;
     static char *keywords[] = { "x", "default", "raise_on_invalid",
-                                "key", NULL };
-    static const char *format = "O|OOO:fast_int";
+                                "key", "base", NULL };
+    static const char *format = "O|OOOO:fast_int";
 
     /* Read the function argument. */
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
                                      &input, &default_value, &raise_on_invalid,
-                                     &key))
+                                     &opts.key, &base))
         return NULL;
+    Options_Set_Return_Value(opts, input, default_value, raise_on_invalid);
+    if (assess_integer_base_input(base, &opts.base)) return NULL;
 
-    pyreturn = PyObject_to_PyNumber(input, INT, NULL, NULL, false);
-    return assess_PyNumber(input, pyreturn,
-                           default_value, raise_on_invalid, key, INT);
+    return PyObject_to_PyNumber(input, INT, &opts);
 }
 
 
@@ -135,8 +127,7 @@ fastnumbers_fast_forceint(PyObject *self, PyObject *args, PyObject *kwargs)
     PyObject *input = NULL;
     PyObject *raise_on_invalid = Py_False;
     PyObject *default_value = NULL;
-    PyObject *key = NULL;
-    PyObject *pyreturn = NULL;
+    struct Options opts = init_Options_convert;
     static char *keywords[] = { "x", "default", "raise_on_invalid",
                                 "key", NULL };
     static const char *format = "O|OOO:fast_forceint";
@@ -144,12 +135,11 @@ fastnumbers_fast_forceint(PyObject *self, PyObject *args, PyObject *kwargs)
     /* Read the function argument. */
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
                                      &input, &default_value, &raise_on_invalid,
-                                     &key))
+                                     &opts.key))
         return NULL;
+    Options_Set_Return_Value(opts, input, default_value, raise_on_invalid);
 
-    pyreturn = PyObject_to_PyNumber(input, FORCEINT, NULL, NULL, false);
-    return assess_PyNumber(input, pyreturn,
-                           default_value, raise_on_invalid, key, FORCEINT);
+    return PyObject_to_PyNumber(input, FORCEINT, &opts);
 }
 
 
@@ -158,25 +148,18 @@ static PyObject *
 fastnumbers_isreal(PyObject *self, PyObject *args, PyObject *kwargs)
 {
     PyObject *input = NULL;
-    PyObject *str_only = Py_False;
-    PyObject *num_only = Py_False;
-    PyObject *allow_inf = Py_False;
-    PyObject *allow_nan = Py_False;
+    struct Options opts = init_Options_check;
     static char *keywords[] = { "x", "str_only", "num_only",
                                 "allow_inf", "allow_nan", NULL };
     static const char *format = "O|OOOO:isreal";
 
     /* Read the function argument. */
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
-                                     &input, &str_only, &num_only,
-                                     &allow_inf, &allow_nan))
+                                     &input, &opts.str_only, &opts.num_only,
+                                     &opts.handle_inf, &opts.handle_nan))
         return NULL;
 
-    if (PyNumber_Check(input))
-        return PyBool_from_bool(PyNumber_is_correct_type(input, REAL,
-                                                         str_only));
-    if (PyObject_IsTrue(num_only)) Py_RETURN_FALSE;
-    return PyString_is_a_number(input, REAL, allow_inf, allow_nan);
+    return PyObject_is_number(input, REAL, &opts);
 }
 
 
@@ -185,25 +168,18 @@ static PyObject *
 fastnumbers_isfloat(PyObject *self, PyObject *args, PyObject *kwargs)
 {
     PyObject *input = NULL;
-    PyObject *str_only = Py_False;
-    PyObject *num_only = Py_False;
-    PyObject *allow_inf = Py_False;
-    PyObject *allow_nan = Py_False;
+    struct Options opts = init_Options_check;
     static char *keywords[] = { "x", "str_only", "num_only",
                                 "allow_inf", "allow_nan", NULL };
     static const char *format = "O|OOOO:isfloat";
 
     /* Read the function argument. */
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
-                                     &input, &str_only, &num_only,
-                                     &allow_inf, &allow_nan))
+                                     &input, &opts.str_only, &opts.num_only,
+                                     &opts.handle_inf, &opts.handle_nan))
         return NULL;
 
-    if (PyNumber_Check(input))
-        return PyBool_from_bool(PyNumber_is_correct_type(input, FLOAT,
-                                                         str_only));
-    if (PyObject_IsTrue(num_only)) Py_RETURN_FALSE;
-    return PyString_is_a_number(input, FLOAT, allow_inf, allow_nan);
+    return PyObject_is_number(input, FLOAT, &opts);
 }
 
 
@@ -212,21 +188,19 @@ static PyObject *
 fastnumbers_isint(PyObject *self, PyObject *args, PyObject *kwargs)
 {
     PyObject *input = NULL;
-    PyObject *str_only = Py_False;
-    PyObject *num_only = Py_False;
-    static char *keywords[] = { "x", "str_only", "num_only", NULL };
-    static const char *format = "O|OO:isint";
+    PyObject *base = NULL;
+    struct Options opts = init_Options_check;
+    static char *keywords[] = { "x", "str_only", "num_only", "base", NULL };
+    static const char *format = "O|OOO:isint";
 
     /* Read the function argument. */
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
-                                     &input, &str_only, &num_only))
+                                     &input, &opts.str_only, &opts.num_only,
+                                     &base))
         return NULL;
+    if (assess_integer_base_input(base, &opts.base)) return NULL;
 
-    if (PyNumber_Check(input))
-        return PyBool_from_bool(PyNumber_is_correct_type(input, INT,
-                                                         str_only));
-    if (PyObject_IsTrue(num_only)) Py_RETURN_FALSE;
-    return PyString_is_a_number(input, INT, NULL, NULL);
+    return PyObject_is_number(input, INT, &opts);
 }
 
 
@@ -235,21 +209,88 @@ static PyObject *
 fastnumbers_isintlike(PyObject *self, PyObject *args, PyObject *kwargs)
 {
     PyObject *input = NULL;
-    PyObject *str_only = Py_False;
-    PyObject *num_only = Py_False;
+    struct Options opts = init_Options_check;
     static char *keywords[] = { "x", "str_only", "num_only", NULL };
     static const char *format = "O|OO:isintlike";
 
     /* Read the function argument. */
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
-                                     &input, &str_only, &num_only))
+                                     &input, &opts.str_only, &opts.num_only))
         return NULL;
 
-    if (PyNumber_Check(input))
-        return PyBool_from_bool(PyNumber_is_correct_type(input, INTLIKE,
-                                                         str_only));
-    if (PyObject_IsTrue(num_only)) Py_RETURN_FALSE;
-    return PyString_is_a_number(input, INTLIKE, NULL, NULL);
+    return PyObject_is_number(input, INTLIKE, &opts);
+}
+
+
+/* Drop-in replacement for int, float */
+static PyObject *
+fastnumbers_int(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    PyObject *input = NULL;
+    PyObject *base = NULL;
+    struct Options opts = init_Options_convert;
+    static char *keywords[] = { "x", "base", NULL };
+    static const char *format = "|OO:int";
+
+    /* Read the function argument. */
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
+                                     &input, &base))
+        return NULL;
+    if (assess_integer_base_input(base, &opts.base)) return NULL;
+    /* No arguments returns 0. */
+    if (input == NULL) {
+        if (!Options_Default_Base(&opts)) {
+            PyErr_SetString(PyExc_TypeError, "int() missing string argument");
+            return NULL;
+        }
+        return long_to_PyInt(0);
+    }
+    Options_Set_Return_Value(opts, input, NULL, Py_True);
+    Options_Set_Disallow_UnicodeCharacter(&opts);
+    return PyObject_to_PyNumber(input, INT, &opts);
+}
+
+
+static PyObject *
+fastnumbers_float(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    PyObject *input = NULL;
+    struct Options opts = init_Options_convert;
+    static char *keywords[] = { "x", NULL };
+    static const char *format = "|O:float";
+
+    /* Read the function argument. */
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords, &input))
+        return NULL;
+    /* No arguments returns 0.0. */
+    if (input == NULL) return PyFloat_FromDouble(0.0);
+    Options_Set_Return_Value(opts, input, NULL, Py_True);
+    Options_Set_Disallow_UnicodeCharacter(&opts);
+
+    return PyObject_to_PyNumber(input, FLOAT, &opts);
+}
+
+
+/* Behaves like float or int, but returns correct type. */
+static PyObject *
+fastnumbers_real(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    PyObject *input = NULL;
+    struct Options opts = init_Options_convert;
+    static char *keywords[] = { "x", "coerce", NULL };
+    static const char *format = "|OO:real";
+
+    /* Read the function argument. */
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, format, keywords,
+                                     &input, &opts.coerce))
+        return NULL;
+    /* No arguments returns 0.0 or 0 depending on the state of coerce. */
+    if (input == NULL) return Options_Coerce_True(&opts) ? long_to_PyInt(0)
+                                                         : PyFloat_FromDouble(0.0);
+    Options_Set_Return_Value(opts, input, NULL, Py_True);
+    Options_Set_Disallow_UnicodeCharacter(&opts);
+
+    return PyObject_to_PyNumber(input, REAL, &opts);
 }
 
 
@@ -271,6 +312,12 @@ static PyMethodDef FastnumbersMethods[] = {
                        METH_VARARGS | METH_KEYWORDS, isint__doc__ },
     { "isintlike",     (PyCFunction) fastnumbers_isintlike,
                        METH_VARARGS | METH_KEYWORDS, isintlike__doc__ },
+    { "int",           (PyCFunction) fastnumbers_int,
+                       METH_VARARGS | METH_KEYWORDS, fastnumbers_int__doc__ },
+    { "float",         (PyCFunction) fastnumbers_float,
+                       METH_VARARGS | METH_KEYWORDS, fastnumbers_float__doc__ },
+    { "real",          (PyCFunction) fastnumbers_real,
+                       METH_VARARGS | METH_KEYWORDS, fastnumbers_real__doc__ },
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -278,9 +325,15 @@ static PyMethodDef FastnumbersMethods[] = {
 /* We want a module-level variable that is the version. */
 static PyObject *fastnumbers__version__;
 
+/* Some constants that may be useful for debugging. */
+static PyObject *fastnumbers_FN_MAX_INT_LEN;
+static PyObject *fastnumbers_FN_DBL_DIG;
+static PyObject *fastnumbers_FN_MAX_EXP;
+static PyObject *fastnumbers_FN_MIN_EXP;
 
-/* Define the module interface.  This is different for Python2 and Python3. */
+/* Define the module interface. This is different for Python2 and Python3. */
 #if PY_MAJOR_VERSION >= 3
+
 static struct PyModuleDef moduledef = {
         PyModuleDef_HEAD_INIT,
         "fastnumbers",
@@ -298,13 +351,8 @@ PyInit_fastnumbers(void)
     PyObject *m = PyModule_Create(&moduledef);
     if (m == NULL) return NULL;
 
-    fastnumbers__version__ = PyUnicode_FromString(FASTNUMBERS_VERSION);
-    Py_INCREF(fastnumbers__version__);
-    PyModule_AddObject(m, "__version__", fastnumbers__version__);
-
-    return m;
-}
 #else
+
 PyMODINIT_FUNC
 initfastnumbers(void)
 {
@@ -313,8 +361,27 @@ initfastnumbers(void)
                                  fastnumbers__doc__);
     if (m == NULL) return;
 
-    fastnumbers__version__ = PyUnicode_FromString(FASTNUMBERS_VERSION);
-    Py_INCREF(fastnumbers__version__);
-    PyModule_AddObject(m, "__version__", fastnumbers__version__);
-}
 #endif
+
+    /* Add module level constants. */
+    fastnumbers__version__ = PyUnicode_FromString(FASTNUMBERS_VERSION);
+    fastnumbers_FN_MAX_INT_LEN = long_to_PyInt(FN_MAX_INT_LEN);
+    fastnumbers_FN_DBL_DIG = long_to_PyInt(FN_DBL_DIG);
+    fastnumbers_FN_MAX_EXP = long_to_PyInt(FN_MAX_EXP);
+    fastnumbers_FN_MIN_EXP = long_to_PyInt(FN_MIN_EXP);
+    Py_INCREF(fastnumbers__version__);
+    Py_INCREF(fastnumbers_FN_MAX_INT_LEN);
+    Py_INCREF(fastnumbers_FN_DBL_DIG);
+    Py_INCREF(fastnumbers_FN_MAX_EXP);
+    Py_INCREF(fastnumbers_FN_MIN_EXP);
+    PyModule_AddObject(m, "__version__", fastnumbers__version__);
+    PyModule_AddObject(m, "max_int_len", fastnumbers_FN_MAX_INT_LEN);
+    PyModule_AddObject(m, "dig", fastnumbers_FN_DBL_DIG);
+    PyModule_AddObject(m, "max_exp", fastnumbers_FN_MAX_EXP);
+    PyModule_AddObject(m, "min_exp", fastnumbers_FN_MIN_EXP);
+
+#if PY_MAJOR_VERSION >= 3
+    return m;
+#endif
+}
+

@@ -1,24 +1,29 @@
 language: python
-sudo: false
-os:
-- linux
-compiler:
-- clang
-- gcc
 python:
-- "2.6"
 - "2.7"
 - "3.3"
 - "3.4"
 - "3.5"
-- "3.5-dev"
-# - "nightly"
+- "3.6"
+
+sudo: false
+os:
+- linux
+
+branches:
+  except:
+  - /^appveyor-.*$/
+
+env:
+- CC=clang
+- CC=gcc CFLAGS="--coverage -O0"
+
 install:
-- pip install hypothesis hypothesis-pytest
-- pip install -e .
-before_script:
-- python patch_doctest.py
+- pip install -U pip
+- pip install tox-travis codecov
+
 script:
-- python -m doctest fastnumbers*.so
-- if [[ $TRAVIS_PYTHON_VERSION == '2.6' ]]; then python -m pytest tests/test_fastnumbers_examples.py README.rst; fi
-- if [[ $TRAVIS_PYTHON_VERSION != '2.6' ]]; then python -m pytest --doctest-glob=README.rst; fi
+- tox
+
+after_success:
+- (test "$CC" == "gcc" && codecov --gcov-args '-o build/temp.*/src') || echo "skipping coverage for $CC"

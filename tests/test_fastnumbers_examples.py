@@ -2,9 +2,9 @@
 # Find the build location and add that to the path
 from __future__ import print_function, division
 import sys
-import os
 import math
 from platform import python_version_tuple
+import pytest
 from pytest import raises
 import fastnumbers
 
@@ -54,6 +54,9 @@ def test_fast_real():
     # 8. long number
     assert fastnumbers.fast_real(35892482945872302493) == 35892482945872302493
     # 9. long string
+    if python_version_tuple()[0] == '2':
+        assert fastnumbers.fast_real("35892482945872302493L") == 35892482945872302493
+        assert fastnumbers.fast_real("35892482945872302493l") == 35892482945872302493
     assert fastnumbers.fast_real("35892482945872302493") == 35892482945872302493
     # 10. return type
     assert isinstance(fastnumbers.fast_real(4029), int)
@@ -112,8 +115,10 @@ def test_fast_float():
     assert fastnumbers.fast_float("+367.3268") == +367.3268
     assert fastnumbers.fast_float("+367.3268", True) == +367.3268
     # 3. float string with exponents
+    assert fastnumbers.fast_float("-367.3268e27") == -367.3268e27
+    assert fastnumbers.fast_float("-367.3268E27") == -367.3268E27
     assert fastnumbers.fast_float("-367.3268e207") == -367.3268e207
-    assert fastnumbers.fast_float('1.175494351e-3810000000') == 0.0
+    assert fastnumbers.fast_float('1.175494351E-3810000000') == 0.0
     # 4. float string with padded whitespace
     assert fastnumbers.fast_float("   -367.04   ") == -367.04
     # 5. int number
@@ -125,6 +130,9 @@ def test_fast_float():
     # 8. long number
     assert fastnumbers.fast_float(35892482945872302493) == 35892482945872302493.0
     # 9. long string
+    if python_version_tuple()[0] == '2':
+        assert fastnumbers.fast_float("35892482945872302493L") == 35892482945872302493.0
+        assert fastnumbers.fast_float("35892482945872302493l") == 35892482945872302493.0
     assert fastnumbers.fast_float("35892482945872302493") == 35892482945872302493.0
     # 10. return type
     assert isinstance(fastnumbers.fast_float(4029), float)
@@ -145,7 +153,7 @@ def test_fast_float():
     assert fastnumbers.fast_float('-iNFinity') == float('-inf')
     assert fastnumbers.fast_float('-iNFinity', inf=523) == 523
     # 15. NaN
-    assert math.isnan(fastnumbers.fast_float('nan'))
+    assert math.isnan(fastnumbers.fast_float('nAn'))
     assert math.isnan(fastnumbers.fast_float('-NaN'))
     assert fastnumbers.fast_float('-NaN', nan=0) == 0
     # 16. Sign/'e'/'.' only
@@ -190,6 +198,9 @@ def test_fast_int():
     # 8. long number
     assert fastnumbers.fast_int(35892482945872302493) == 35892482945872302493
     # 9. long string
+    if python_version_tuple()[0] == '2':
+        assert fastnumbers.fast_int("35892482945872302493L") == 35892482945872302493
+        assert fastnumbers.fast_int("35892482945872302493l") == 35892482945872302493
     assert fastnumbers.fast_int("35892482945872302493") == 35892482945872302493
     # 10. return type
     assert isinstance(fastnumbers.fast_int(4029.00), int)
@@ -221,6 +232,7 @@ def test_fast_int():
     # 18. Unicode numbers
     assert fastnumbers.fast_int(u'⑦') == 7
     assert fastnumbers.fast_int(u'⁸') == 8
+    assert fastnumbers.fast_int(u'⁸', base=10) == u'⁸'
     assert fastnumbers.fast_int(u'⅔') == u'⅔'
     assert fastnumbers.fast_int(u'Ⅴ') == u'Ⅴ'
     # 19. Key function
@@ -383,9 +395,10 @@ def test_isfloat():
     # 14. Infinity
     assert not fastnumbers.isfloat('inf')
     assert fastnumbers.isfloat('inf', allow_inf=True)
-    assert fastnumbers.isfloat('-iNFinity', allow_inf=True)
+    assert fastnumbers.isfloat('-infinity', allow_inf=True)
+    assert fastnumbers.isfloat('-INFINITY', allow_inf=True)
     # 15. NaN
-    assert not fastnumbers.isfloat('nan')
+    assert not fastnumbers.isfloat('nAn')
     assert fastnumbers.isfloat('nan', allow_nan=True)
     assert fastnumbers.isfloat('-NaN', allow_nan=True)
     # 16. Sign/'e'/'.' only
@@ -465,6 +478,12 @@ def test_isintlike():
     assert not fastnumbers.isintlike("+367.0", num_only=True)
     # 3. float string with exponents
     assert fastnumbers.isintlike("-367.3268e207")
+    assert not fastnumbers.isintlike("145343E-4")
+    assert fastnumbers.isintlike("14534.000000000e4")
+    assert fastnumbers.isintlike("1400000E-4")
+    assert not fastnumbers.isintlike("140E-4")
+    assert fastnumbers.isintlike("14.E4")
+    assert fastnumbers.isintlike("14E4")
     # 4. float string with padded whitespace
     assert not fastnumbers.isintlike("   -367.04   ")
     # 5. int number
@@ -476,6 +495,9 @@ def test_isintlike():
     # 8. long number
     assert fastnumbers.isintlike(35892482945872302493)
     # 9. long string
+    if python_version_tuple()[0] == '2':
+        assert fastnumbers.isintlike("35892482945872302493l")
+        assert fastnumbers.isintlike("35892482945872302493L")
     assert fastnumbers.isintlike("35892482945872302493")
     # 10. return type
     assert fastnumbers.isintlike(4029) is True
@@ -504,3 +526,23 @@ def test_isintlike():
     assert fastnumbers.isintlike(u'⁸')
     assert not fastnumbers.isintlike(u'⅔')
     assert fastnumbers.isintlike(u'Ⅴ')
+
+
+@pytest.fixture()
+def tprint(capsys):
+    """Fixture for printing info after test, not supressed by pytest stdout/stderr capture"""
+    lines = []
+    yield lines.append
+
+    with capsys.disabled():
+        for line in lines:
+            sys.stdout.write('\n{}'.format(line))
+
+
+def test_print_limits(tprint):
+    tprint('\nFASNUMBERS NUMERICAL LIMITS FOR THIS COMPILER BEFORE PYTHON FALLBACK:')
+    tprint('MAXIMUM INTEGER LENTH: {}'.format(fastnumbers.max_int_len))
+    tprint('MAX NUMBER FLOAT DIGITS: {}'.format(fastnumbers.dig))
+    tprint('MAXIMUM FLOAT EXPONENT: {}'.format(fastnumbers.max_exp))
+    tprint('MINIMUM FLOAT EXPONENT: {}'.format(fastnumbers.min_exp))
+    tprint('')
